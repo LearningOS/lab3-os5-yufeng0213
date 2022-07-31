@@ -245,6 +245,60 @@ impl TaskControlBlock {
     }
 
 
+    pub fn spawn(self: &Arc<TaskControlBlock>,_data: &[u8]) -> Arc<TaskControlBlock> {
+        // ---- access parent PCB exclusively
+        let mut parent_inner = self.inner_exclusive_access();
+        // copy user space(include trap context)
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(_data);
+        let trap_cx_ppn = memory_set.translate(VirtAddr::from(TRAP_CONTEXT).into()).unwrap().ppn();
+
+        // alloc a pid and a kernel stack in kernel space
+        let pid_handle = pid_alloc();
+        let kernel_stack = KernelStack::new(&pid_handle);
+        let kernel_stack_top = kernel_stack.get_top();
+        let task_control_block = Arc::new(TaskControlBlock {
+            pid: pid_handle,
+            kernel_stack,
+            inner: unsafe {
+                UPSafeCell::new(TaskControlBlockInner {
+                    trap_cx_ppn,
+                    base_size: parent_inner.base_size,
+                    task_cx: TaskContext::goto_trap_return(kernel_stack_top),
+                    task_status: TaskStatus::Ready,
+                    memory_set,
+                    parent: Some(Arc::downgrade(self)),
+                    children: Vec::new(),
+                    exit_code: 0,
+                    syscall_times: [0;MAX_SYSCALL_NUM],
+                    start_time:0,
+                    task_priority: parent_inner.task_priority,
+                    task_stride:parent_inner.task_stride
+                })
+            },
+        });
+        // add child
+        parent_inner.children.push(task_control_block.clone());
+        // modify kernel_sp in trap_cx
+        // **** access children PCB exclusively
+        let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
+        trap_cx.kernel_sp = kernel_stack_top;
+
+        //exec
+        *trap_cx = TrapContext::app_init_context(
+            entry_point,
+            user_sp,
+            KERNEL_SPACE.exclusive_access().token(),
+            self.kernel_stack.get_top(),
+            trap_handler as usize,
+        );
+
+        // return
+        task_control_block
+        // ---- release parent PCB automatically
+        // **** release children PCB automatically
+    }
+
+
 }
 
 #[derive(Copy, Clone, PartialEq)]
