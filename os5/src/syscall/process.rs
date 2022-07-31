@@ -6,12 +6,11 @@ use crate::mm::{KERNEL_SPACE,current_translated_physcial_address};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
     suspend_current_and_run_next, TaskStatus,get_current_status,get_syscall_times,
-    get_current_start_time,memory_set_mmap,memory_set_munmap
+    get_current_start_time,memory_set_mmap,memory_set_munmap,TaskControlBlock,set_task_priority
 };
 use crate::timer::get_time_us;
 use alloc::sync::Arc;
 use crate::config::MAX_SYSCALL_NUM;
-use task::{TaskControlBlock, TaskStatus};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -154,7 +153,12 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
 
 // YOUR JOB: 实现sys_set_priority，为任务添加优先级
 pub fn sys_set_priority(_prio: isize) -> isize {
-    -1
+    if _prio < 2{
+        return -1;
+    }
+
+    set_task_priority(_prio);
+    _prio as isize
 }
 
 //

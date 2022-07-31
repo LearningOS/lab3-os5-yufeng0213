@@ -51,6 +51,9 @@ pub struct TaskControlBlockInner {
     pub syscall_times:[u32;MAX_SYSCALL_NUM],
     pub start_time:usize,
 
+    pub task_priority: isize,
+    pub task_stride: usize,
+
 }
 
 /// Simple access to its internal fields
@@ -81,7 +84,7 @@ impl TaskControlBlockInner {
         self.task_status
     }
 
-    pub fn add_syscall_times(&self,syscall_id: usize){
+    pub fn add_syscall_times(&mut self,syscall_id: usize){
         self.syscall_times[syscall_id] += 1;
     }
 
@@ -89,7 +92,7 @@ impl TaskControlBlockInner {
         self.syscall_times
     }
 
-    pub fn memory_set_mmap(&self,_start:usize,_len:usize,_port:usize) -> isize{
+    pub fn memory_set_mmap(&mut self,_start:usize,_len:usize,_port:usize) -> isize{
         if _start % PAGE_SIZE != 0 || _port & !0x7 != 0 || _port & 0x7 == 0 {
             return -1;
         }
@@ -97,7 +100,7 @@ impl TaskControlBlockInner {
         self.memory_set.mmap(_start,_len,_port)
     }
 
-    pub fn memory_set_munmap(&self,_start:usize,_len:usize) -> isize{
+    pub fn memory_set_munmap(&mut self,_start:usize,_len:usize) -> isize{
         if _start % PAGE_SIZE != 0 {
             return -1;
         }
@@ -105,6 +108,9 @@ impl TaskControlBlockInner {
         self.memory_set.munmap(_start,_len)
     }
 
+    pub fn set_task_priority(&mut self,_prio:isize){
+        self.task_priority = _prio;
+    }
 }
 
 impl TaskControlBlock {
@@ -142,7 +148,9 @@ impl TaskControlBlock {
                     children: Vec::new(),
                     exit_code: 0,
                     syscall_times:[0;MAX_SYSCALL_NUM],
-                    start_time:0
+                    start_time:0,
+                    task_priority:16,
+                    task_stride:0
                 })
             },
         };
@@ -168,6 +176,10 @@ impl TaskControlBlock {
 
         // **** access inner exclusively
         let mut inner = self.inner_exclusive_access();
+
+        //
+        inner.task_priority = 16;
+
         // substitute memory_set
         inner.memory_set = memory_set;
         // update trap_cx ppn
@@ -210,8 +222,10 @@ impl TaskControlBlock {
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
                     exit_code: 0,
-                    syscall_times: [0;MAX_SYSCALL_NUM],
-                    start_time:0
+                    syscall_times: parent_inner.syscall_times,
+                    start_time:parent_inner.start_time,
+                    task_priority: parent_inner.task_priority,
+                    task_stride:parent_inner.task_stride
                 })
             },
         });
