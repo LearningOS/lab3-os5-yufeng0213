@@ -32,6 +32,7 @@ pub use processor::{
 };
 
 use crate::timer::{get_time_us};
+use crate::config::{BIG_STRIDE};
 
 /// Make current task suspended and switch to the next task
 pub fn suspend_current_and_run_next() {
@@ -43,6 +44,10 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+
+    //LAB5
+    task_inner.task_stride = task_inner.task_stride + BIG_STRIDE / task_inner.task_priority as usize;
+
     drop(task_inner);
     // ---- release current PCB
 
@@ -142,4 +147,11 @@ pub fn memory_set_munmap(_start:usize,_len:usize) -> isize{
     .unwrap()
     .inner_exclusive_access()
     .memory_set_munmap(_start,_len)
+}
+
+pub fn set_task_priority(_prio: isize){
+    current_task()
+    .unwrap()
+    .inner_exclusive_access()
+    .set_task_priority(_prio);
 }

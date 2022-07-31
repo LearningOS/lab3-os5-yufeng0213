@@ -1,17 +1,16 @@
 //! Process management syscalls
 
 use crate::loader::get_app_data_by_name;
-use crate::mm::{translated_refmut, translated_str};
-use crate::mm::{KERNEL_SPACE,current_translated_physcial_address};
+use crate::mm::{translated_refmut, translated_str,MemorySet};
+use crate::mm::{KERNEL_SPACE,current_translated_physcial_address,VirtAddr};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
     suspend_current_and_run_next, TaskStatus,get_current_status,get_syscall_times,
-    get_current_start_time,memory_set_mmap,memory_set_munmap
+    get_current_start_time,memory_set_mmap,memory_set_munmap,TaskControlBlock,set_task_priority
 };
 use crate::timer::get_time_us;
 use alloc::sync::Arc;
-use crate::config::MAX_SYSCALL_NUM;
-use task::{TaskControlBlock, TaskStatus};
+use crate::config::{MAX_SYSCALL_NUM,TRAP_CONTEXT};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -154,30 +153,32 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
 
 // YOUR JOB: 实现sys_set_priority，为任务添加优先级
 pub fn sys_set_priority(_prio: isize) -> isize {
-    -1
+    if _prio < 2{
+        return -1;
+    }
+
+    set_task_priority(_prio);
+    _prio as isize
+
+    
 }
 
 //
 // YOUR JOB: 实现 sys_spawn 系统调用
 // ALERT: 注意在实现 SPAWN 时不需要复制父进程地址空间，SPAWN != FORK + EXEC 
 pub fn sys_spawn(_path: *const u8) -> isize {
-    
+     
     let token = current_user_token();
-    let path = translated_str(token,_path);
-    if let Some(data) = get_app_data_by_name(path.as_str()){
-        let new_task:Arc<TaskControlBlock> = Arc::new(TaskControlBlock::new(data));
-        let mut new_inner = new_task.inner_exclusive_access();
-        let parent = current_task().unwrap();
-        let mut parent_inner = parent.inner_exclusive_access();
-        new_inner.parent = Some(Arc::downgrade(&parent));
-        parent_inner.children.push(new_task.clone());
-        drop(new_inner);
-        drop(parent_inner);
+    let path = translated_str(token, _path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let task = current_task().unwrap();
+        let new_task = task.spawn(data);
         let new_pid = new_task.pid.0;
+        let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+        trap_cx.x[10] = 0;
         add_task(new_task);
         new_pid as isize
-    }else{
+    } else {
         -1
     }
-
 }
